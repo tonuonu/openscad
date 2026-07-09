@@ -3,6 +3,7 @@
 
 #ifdef ENABLE_MANIFOLD
 
+#include <cstdlib>
 #include <memory>
 #include <vector>
 
@@ -77,6 +78,35 @@ std::shared_ptr<ManifoldGeometry> applyOperator3DManifold(const Geometry::Geomet
         continue;
       }
       *geom = geom->minkowski(*chN);
+      if (item.first) item.first->progress_report();
+    }
+    return geom;
+  }
+
+  // TEMPORARY benchmarking switch (remove before merge): OPENSCAD_MANIFOLD_SEQUENTIAL=1 restores the
+  // pre-batch pairwise fold, so a single build can A/B the batched vs sequential paths on any platform.
+  static const bool sequential = (std::getenv("OPENSCAD_MANIFOLD_SEQUENTIAL") != nullptr);
+  if (sequential) {
+    std::shared_ptr<ManifoldGeometry> geom;
+    bool foundFirst = false;
+    for (const auto& item : children) {
+      auto chN = item.second ? createManifoldFromGeometry(item.second) : nullptr;
+      if (!chN || chN->isEmpty()) {
+        if (op == OpenSCADOperator::INTERSECTION) return nullptr;
+        if (op == OpenSCADOperator::DIFFERENCE && !foundFirst) return nullptr;
+        continue;
+      }
+      if (!foundFirst) {
+        geom = std::make_shared<ManifoldGeometry>(*chN);
+        foundFirst = true;
+        continue;
+      }
+      switch (op) {
+      case OpenSCADOperator::UNION:        *geom = *geom + *chN; break;
+      case OpenSCADOperator::INTERSECTION: *geom = *geom * *chN; break;
+      case OpenSCADOperator::DIFFERENCE:   *geom = *geom - *chN; break;
+      default:                             break;
+      }
       if (item.first) item.first->progress_report();
     }
     return geom;
